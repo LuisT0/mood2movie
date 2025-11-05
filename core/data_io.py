@@ -1,12 +1,17 @@
 # core/data_io.py
 from __future__ import annotations
 
+import io
 from pathlib import Path
-from typing import List, Tuple
+from typing import Optional
 
-import ast
 import pandas as pd
+import requests
 
+try:
+    import streamlit as st  # solo estará en runtime de Streamlit
+except Exception:
+    st = None
 
 # ---------------------------
 # Utilidades internas
@@ -58,107 +63,71 @@ def _as_list(x):
     return [x]
 
 
+DEFAULT_LOCAL_PATH = (
+    Path(__file__).resolve().parents[1] / "data" / "tops.parquet"
+)
+
 def _coerce_types(df: pd.DataFrame) -> pd.DataFrame:
-    """Coerciona tipos mínimos usados por la app."""
-    out = df.copy()
-    if "release_year" in out.columns:
-        out["release_year"] = pd.to_numeric(out["release_year"], errors="coerce").astype("Int64")
-    if "runtime" in out.columns:
-        out["runtime"] = pd.to_numeric(out["runtime"], errors="coerce").astype("Int64")
-    if "vote_average" in out.columns:
-        out["vote_average"] = pd.to_numeric(out["vote_average"], errors="coerce")
-    if "vote_count" in out.columns:
-        out["vote_count"] = pd.to_numeric(out["vote_count"], errors="coerce").astype("Int64")
-    if "popularity" in out.columns:
-        out["popularity"] = pd.to_numeric(out["popularity"], errors="coerce")
-
-    # listas para UI amigable
-    if "genres" in out.columns:
-        out["genres"] = out["genres"].apply(_as_list)
-    if "keywords" in out.columns:
-        out["keywords"] = out["keywords"].apply(_as_list)
-
-    # strings clave
-    for c in ("title", "mood", "saga_key", "explicacion"):
-        if c in out.columns:
-            out[c] = out[c].astype(str)
-
-    # score_total puede venir como objeto -> a float
-    if "score_total" in out.columns:
-        out["score_total"] = pd.to_numeric(out["score_total"], errors="coerce")
-
-    return out
-
-
-# ---------------------------
-# API pública
-# ---------------------------
-def load_tops_dataset(path: Path | str) -> pd.DataFrame:
-    """
-    Carga el dataset de tops. Intenta Parquet y cae a CSV si aplica.
-    La ruta puede ser absoluta o relativa al repo.
-    """
-    p = Path(path)
-    if not p.exists():
-        # intenta resolver relativo a la raíz del repo (../data/… desde core/)
-        root = Path(__file__).resolve().parents[1]
-        candidate = root / "data" / p.name
-        if candidate.exists():
-            p = candidate
-        else:
-            # si le pasaron solo 'tops.parquet', prueba en data/
-            candidate2 = root / "data" / "tops.parquet"
-            if candidate2.exists():
-                p = candidate2
-
-    if not p.exists():
-        raise FileNotFoundError(f"No encuentro el dataset en: {path}")
-
-    # Detecta por extensión
-    ext = p.suffix.lower()
-    if ext in (".parquet", ".pq"):
-        df = pd.read_parquet(p)
-    elif ext == ".csv":
-        df = pd.read_csv(p, encoding="utf-8")
-    else:
-        # intenta primero parquet y si falla, CSV
-        try:
-            df = pd.read_parquet(p)
-        except Exception:
-            df = pd.read_csv(p, encoding="utf-8")
-
-    df = _coerce_types(df)
+    int_cols = ["release_year", "runtime", "vote_count"]
+    float_cols = ["score_total", "vote_average"]
+    for c in int_cols:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce").astype("Int64")
+    for c in float_cols:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
     return df
 
+def _download(url: str, timeout: int = 60) -> bytes:
+    r = requests.get(url, timeout=timeout)
+    r.raise_for_status()
+    return r.content
 
-def ensure_required_columns(df: pd.DataFrame, required: List[str]) -> List[str]:
-    """
-    Revisa que existan columnas requeridas; devuelve la lista de faltantes.
-    No levanta excepción (eso lo hace la UI para dar mensaje bonito).
-    """
-    have = set(df.columns)
-    missing = [c for c in required if c not in have]
-    return missing
-
-
-# ---------------------------
-# Helpers opcionales (útiles en tests/local)
-# ---------------------------
-def load_catalog(path: Path | str) -> pd.DataFrame:
-    """
-    Carga el catálogo completo (si lo usas en depuración local).
-    """
-    p = Path(path)
-    if not p.exists():
-        root = Path(__file__).resolve().parents[1]
-        candidate = root / "data" / "catalogo_peliculas.parquet"
-        if candidate.exists():
-            p = candidate
-    if not p.exists():
-        raise FileNotFoundError(f"No encuentro el catálogo en: {path}")
-
-    if p.suffix.lower() in (".parquet", ".pq"):
-        df = pd.read_parquet(p)
-    else:
-        df = pd.read_csv(p, encoding="utf-8")
+def load_remote(url: Optional[str] = None) -> pd.DataFrame:
+    """Carga desde DATA_URL (Hugging Face)."""
+    if url is None and st is not None:
+        url = st.secrets.get("DATA_URL")  # definida en Secrets
+    if not url:
+        raise KeyError("DATA_URL no está definido en secrets ni como argumento.")
+    raw = _download(url)
+    df = pd.read_parquet(io.BytesIO(raw))  # requiere pyarrow
     return _coerce_types(df)
+
+def load_local(path: Optional[str | Path] = None) -> pd.DataFrame:
+    """Fallback local para desarrollo."""
+    p = Path(path) if path else DEFAULT_LOCAL_PATH
+    if not p.exists():
+        # compat con nombre alterno del catálogo si lo usas
+        alt = Path(__file__).resolve().parents[1] / "data" / "catalogo_peliculas.parquet"
+        p = alt if alt.exists() else p
+    if not p.exists():
+        raise FileNotFoundError(f"No encuentro el dataset local en: {p}")
+    df = pd.read_parquet(p)
+    return _coerce_types(df)
+
+# API pública para la app
+if st is not None:
+    @st.cache_data(show_spinner=False, ttl=3600)
+    def get_data(
+        url: Optional[str] = None,
+        local_path: Optional[str | Path] = None,
+        prefer_remote: bool = True,
+    ) -> pd.DataFrame:
+        try:
+            if prefer_remote:
+                return load_remote(url)
+        except Exception as e:
+            st.info(f"No pude descargar DATA_URL, uso copia local. Detalle: {e}")
+        return load_local(local_path)
+else:
+    def get_data(
+        url: Optional[str] = None,
+        local_path: Optional[str | Path] = None,
+        prefer_remote: bool = True,
+    ) -> pd.DataFrame:
+        if prefer_remote:
+            try:
+                return load_remote(url)
+            except Exception:
+                pass
+        return load_local(local_path)

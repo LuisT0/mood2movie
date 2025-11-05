@@ -4,6 +4,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 import streamlit as st
+from core.data_io import get_data
 
 # --- path a la raíz para importar core 
 ROOT = Path(__file__).resolve().parents[1]
@@ -86,7 +87,8 @@ def _ensure_list_ui(x):
 
 @st.cache_data
 def load_tops(path: Path) -> pd.DataFrame:
-    df = pd.read_parquet(path)
+    with st.spinner("Cargando datos…"):
+    df = get_data()
 
     # Normaliza tipos conflictivos
     for c in ["genres", "keywords"]:

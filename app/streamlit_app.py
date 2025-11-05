@@ -468,7 +468,7 @@ else:
     if match.empty:
         st.warning("No encontré la película seleccionada. Volviendo a la grilla.")
         clear_selection()
-        st.rerun()  # opcional: asegura refresco limpio
+        st.rerun()  # refresco limpio
     else:
         st.divider()
         col_back, _ = st.columns([1, 9])

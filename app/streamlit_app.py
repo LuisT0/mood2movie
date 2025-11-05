@@ -88,7 +88,7 @@ def _ensure_list_ui(x):
 @st.cache_data
 def load_tops(path: Path) -> pd.DataFrame:
     with st.spinner("Cargando datos…"):
-    df = get_data()
+        df = get_data()
 
     # Normaliza tipos conflictivos
     for c in ["genres", "keywords"]:

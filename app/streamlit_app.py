@@ -13,6 +13,11 @@ if ROOT not in sys.path:
 
 from core.data_io import get_data
 
+# --- path a la raíz para importar core 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 DATA_DIR = ROOT / "data"
 TOPS_PATH = DATA_DIR / "tops.parquet"
 

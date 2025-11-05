@@ -4,12 +4,14 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 import streamlit as st
-from core.data_io import get_data
 
-# --- path a la raíz para importar core 
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+# --- bootstrapping para imports cuando el entrypoint está en /app ---
+import os, sys
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+from core.data_io import get_data
 
 DATA_DIR = ROOT / "data"
 TOPS_PATH = DATA_DIR / "tops.parquet"

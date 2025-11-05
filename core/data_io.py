@@ -5,11 +5,9 @@ import io
 from pathlib import Path
 from typing import Optional
 
-import pandas as pd
-import requests
-
+import io, requests, pandas as pd
 try:
-    import streamlit as st  # solo estará en runtime de Streamlit
+    import streamlit as st
 except Exception:
     st = None
 
@@ -106,28 +104,51 @@ def load_local(path: Optional[str | Path] = None) -> pd.DataFrame:
     return _coerce_types(df)
 
 # API pública para la app
+# -- API pública para la app (reemplazar todo este bloque) --
 if st is not None:
-    @st.cache_data(show_spinner=False, ttl=3600)
+    @st.cache_data(show_spinner=False, ttl=1800)
     def get_data(
         url: Optional[str] = None,
         local_path: Optional[str | Path] = None,
         prefer_remote: bool = True,
     ) -> pd.DataFrame:
-        try:
-            if prefer_remote:
-                return load_remote(url)
-        except Exception as e:
-            st.info(f"No pude descargar DATA_URL, uso copia local. Detalle: {e}")
-        return load_local(local_path)
-else:
-    def get_data(
-        url: Optional[str] = None,
-        local_path: Optional[str | Path] = None,
-        prefer_remote: bool = True,
-    ) -> pd.DataFrame:
-        if prefer_remote:
+        """Intenta remoto (HF) con timeout corto; si falla, muestra error y cae a local."""
+        data_url = url or (st.secrets.get("DATA_URL") if st else None)
+
+        if prefer_remote and data_url:
             try:
-                return load_remote(url)
+                with st.status("Descargando datos desde Hugging Face…", expanded=False):
+                    raw = _download(str(data_url), timeout=25)  # <- timeout agresivo
+                df = pd.read_parquet(io.BytesIO(raw))  # requiere pyarrow
+                return _coerce_types(df)
+            except Exception as e:
+                st.error(f"No pude descargar el dataset: {e}")
+                st.info("Opciones: verifica DATA_URL, reduce el tamaño (versión *lite*) o usa copia local.")
+
+        # Fallback local (si existe)
+        if local_path:
+            return load_local(local_path)
+
+        # Ruta por defecto
+        try:
+            return load_local()
+        except Exception:
+            raise RuntimeError("Sin datos: DATA_URL falló y no se encontró dataset local.")
+else:
+    
+    def get_data(
+        url: Optional[str] = None,
+        local_path: Optional[str | Path] = None,
+        prefer_remote: bool = True,
+    ) -> pd.DataFrame:
+        data_url = url
+        if prefer_remote and data_url:
+            try:
+                raw = _download(str(data_url), timeout=25)
+                df = pd.read_parquet(io.BytesIO(raw))
+                return _coerce_types(df)
             except Exception:
                 pass
-        return load_local(local_path)
+        if local_path:
+            return load_local(local_path)
+        return load_local()  

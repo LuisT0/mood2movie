@@ -1,0 +1,22 @@
+# Python / general
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.DS_Store
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Streamlit
+.streamlit/
+**/.streamlit/
+
+# Virtual envs
+.env
+.venv
+.mood_env/
+
+# Data grandes temporales (NO ignores tops.parquet)
+data/*.tmp
+data/*.bak
